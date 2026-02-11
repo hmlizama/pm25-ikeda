@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>PM2.5 // IKEDA</title>
+<title>PM2.5 // DATAVIZ</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{overflow:hidden;background:#000;width:100%;height:100%;touch-action:none;-webkit-tap-highlight-color:transparent}
@@ -29,7 +29,7 @@ canvas{display:block}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
 <script>
-// ─── PM2.5 Ryoji Ikeda Visualization ───────────────────────────────
+// ─── PM2.5 Data Visualization ──────────────────────────────────────
 
 // ─── RESPONSIVE ────────────────────────────────────────────────────
 function isMobile() { return windowWidth < 768; }
@@ -84,7 +84,7 @@ function showToast(msg, duration = 3000) {
 }
 
 function doScreenshot() {
-  saveCanvas("pm25-ikeda", "png");
+  saveCanvas("pm25_dataviz", "png");
   showToast("PNG saved!");
 }
 

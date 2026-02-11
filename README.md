@@ -1,6 +1,6 @@
-# PM2.5 // IKEDA
+# PM2.5 DATAVIZ
 
-Real-time global air quality (PM2.5) data visualization inspired by the aesthetic of [Ryoji Ikeda](https://www.ryojiikeda.com/) — number streams, binary patterns, barcodes, and data grids over a pure black canvas.
+Real-time global air quality (PM2.5) data visualization — number streams, binary patterns, barcodes, and data grids over a pure black canvas. Inspired by the aesthetics of data art.
 
 Single self-contained HTML file. No build tools. Just open in a browser.
 
@@ -46,10 +46,6 @@ Open `index.html` in any modern browser (Chrome, Firefox, Safari).
 - **p5.js 1.9.4** — canvas rendering
 - **OpenAQ API v3** — PM2.5 sensor data (refreshed every 2 min)
 - **Simulated fallback** — realistic values based on city averages when API is unavailable
-
-## Disclaimer
-
-This is an independent project inspired by the visual language of data art. It is not affiliated with, endorsed by, or connected to Ryoji Ikeda or his studio.
 
 ## License
 
