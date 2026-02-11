@@ -47,6 +47,10 @@ Open `index.html` in any modern browser (Chrome, Firefox, Safari).
 - **OpenAQ API v3** — PM2.5 sensor data (refreshed every 2 min)
 - **Simulated fallback** — realistic values based on city averages when API is unavailable
 
+## Disclaimer
+
+This is an independent project inspired by the visual language of data art. It is not affiliated with, endorsed by, or connected to Ryoji Ikeda or his studio.
+
 ## License
 
 MIT
