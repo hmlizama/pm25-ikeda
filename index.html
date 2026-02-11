@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PM2.5 // IKEDA</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{overflow:hidden;background:#000;width:100%;height:100%;touch-action:none;-webkit-tap-highlight-color:transparent}
+canvas{display:block}
+#btn-bar{position:fixed;bottom:16px;right:16px;z-index:100;display:flex;gap:10px;align-items:center;
+  opacity:0;transition:opacity 0.4s}
+#btn-bar.visible,#btn-bar:hover{opacity:1}
+#btn-bar button{width:40px;height:40px;border-radius:50%;border:1.5px solid rgba(255,255,255,0.3);
+  background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  -webkit-tap-highlight-color:transparent;color:rgba(255,255,255,0.7);font-family:monospace;font-size:10px;
+  letter-spacing:0.5px}
+#btn-bar button:active{background:rgba(255,255,255,0.1)}
+#toast{position:fixed;bottom:72px;left:50%;transform:translateX(-50%);z-index:100;font-family:monospace;
+  font-size:12px;color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);
+  padding:8px 18px;border-radius:4px;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap}
+</style>
+</head>
+<body>
+<div id="btn-bar">
+  <button id="btn-screenshot" aria-label="Screenshot">PNG</button>
+</div>
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+<script>
+// ─── PM2.5 Ryoji Ikeda Visualization ───────────────────────────────
+
+// ─── RESPONSIVE ────────────────────────────────────────────────────
+function isMobile() { return windowWidth < 768; }
+function S(desktop, mobile) { return isMobile() ? mobile : desktop; }
+
+// ─── CITY DATA ─────────────────────────────────────────────────────
+const CITIES = [
+  { name: "Delhi",     code: "DEL", lat: 28.6139, lon: 77.2090, avgPM: 235 },
+  { name: "Beijing",   code: "BEJ", lat: 39.9042, lon: 116.4074, avgPM: 120 },
+  { name: "Lahore",    code: "LHE", lat: 31.5204, lon: 74.3587, avgPM: 210 },
+  { name: "Dhaka",     code: "DAC", lat: 23.8103, lon: 90.4125, avgPM: 195 },
+  { name: "Kolkata",   code: "CCU", lat: 22.5726, lon: 88.3639, avgPM: 155 },
+  { name: "CDMX",      code: "MEX", lat: 19.4326, lon:-99.1332, avgPM: 58  },
+  { name: "Santiago",   code: "SCL", lat:-33.4489, lon:-70.6693, avgPM: 45  },
+  { name: "Lima",       code: "LIM", lat:-12.0464, lon:-77.0428, avgPM: 52  },
+  { name: "Jakarta",    code: "JKT", lat: -6.2088, lon: 106.8456, avgPM: 75 },
+  { name: "Cairo",      code: "CAI", lat: 30.0444, lon: 31.2357, avgPM: 130 },
+  { name: "Mumbai",     code: "BOM", lat: 19.0760, lon: 72.8777, avgPM: 115 },
+  { name: "Karachi",    code: "KHI", lat: 24.8607, lon: 67.0011, avgPM: 170 },
+  { name: "Chengdu",    code: "CTU", lat: 30.5728, lon: 104.0668, avgPM: 85 },
+  { name: "Hanoi",      code: "HAN", lat: 21.0285, lon: 105.8542, avgPM: 95 },
+  { name: "Bogota",     code: "BOG", lat: 4.7110, lon:-74.0721, avgPM: 38  },
+  { name: "Sao Paulo",  code: "GRU", lat:-23.5505, lon:-46.6333, avgPM: 32  },
+  { name: "Bangkok",    code: "BKK", lat: 13.7563, lon: 100.5018, avgPM: 65 },
+  { name: "Seoul",      code: "ICN", lat: 37.5665, lon: 126.9780, avgPM: 55 },
+  { name: "Los Angeles",code: "LAX", lat: 33.9425, lon:-118.4081, avgPM: 28 },
+  { name: "London",     code: "LHR", lat: 51.5074, lon: -0.1278, avgPM: 18 }
+];
+
+let cityData = [];
+let paused = false;
+let lastMouseMove = 0;
+let cursorVisible = true;
+
+// ─── LAYER OBJECTS ─────────────────────────────────────────────────
+let numberRainColumns = [];
+let binaryStreams = [];
+let barcodeBands = [];
+let gridCells = [];
+let tickerTop, tickerBottom;
+
+// ─── SAVE (PNG) ───────────────────────────────────────────────────
+let ignoreNextClick = false;
+const btnBar = document.getElementById("btn-bar");
+const btnScreenshot = document.getElementById("btn-screenshot");
+const toastEl = document.getElementById("toast");
+
+function showToast(msg, duration = 3000) {
+  toastEl.textContent = msg;
+  toastEl.style.opacity = "1";
+  setTimeout(() => { toastEl.style.opacity = "0"; }, duration);
+}
+
+function doScreenshot() {
+  saveCanvas("pm25-ikeda", "png");
+  showToast("PNG saved!");
+}
+
+btnScreenshot.addEventListener("pointerdown", (e) => {
+  e.stopPropagation(); e.preventDefault();
+  ignoreNextClick = true;
+  setTimeout(() => { ignoreNextClick = false; }, 250);
+  doScreenshot();
+}, { capture: true });
+
+let btnBarTimeout;
+function flashBtnBar() {
+  btnBar.classList.add("visible");
+  clearTimeout(btnBarTimeout);
+  btnBarTimeout = setTimeout(() => { btnBar.classList.remove("visible"); }, 3000);
+}
+
+// ─── API FETCH ─────────────────────────────────────────────────────
+function initCityData() {
+  cityData = CITIES.map(c => ({
+    ...c,
+    pm25: c.avgPM + Math.floor((Math.random() - 0.4) * c.avgPM * 0.5),
+    station: "ST-" + Math.floor(Math.random() * 9000 + 1000),
+    timestamp: new Date().toISOString()
+  }));
+  cityData.forEach(c => { c.pm25 = Math.max(5, c.pm25); });
+}
+
+async function fetchOpenAQ() {
+  try {
+    const resp = await fetch(
+      "https://api.openaq.org/v3/locations?limit=50&parameter_id=2&sort_order=desc&order_by=lastValue",
+      { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(8000) }
+    );
+    if (!resp.ok) throw new Error(resp.status);
+    const json = await resp.json();
+    if (json.results && json.results.length > 0) {
+      json.results.forEach(loc => {
+        const param = loc.sensors?.find(s => s.parameter?.name === "pm25" || s.parameter?.id === 2);
+        if (!param) return;
+        const val = param.latest?.value;
+        if (val == null) return;
+        const match = cityData.find(c => {
+          if (!loc.coordinates) return false;
+          const dlat = Math.abs(c.lat - loc.coordinates.latitude);
+          const dlon = Math.abs(c.lon - loc.coordinates.longitude);
+          return dlat < 2 && dlon < 2;
+        });
+        if (match) {
+          match.pm25 = Math.round(val);
+          match.timestamp = new Date().toISOString();
+        }
+      });
+    }
+  } catch (e) {
+    // silently use simulated data
+  }
+}
+
+function refreshData() {
+  cityData.forEach(c => {
+    const drift = (Math.random() - 0.45) * 15;
+    c.pm25 = Math.max(3, Math.round(c.pm25 + drift));
+    c.timestamp = new Date().toISOString();
+  });
+}
+
+// ─── LAYER 1: NUMBER RAIN ──────────────────────────────────────────
+function initNumberRain() {
+  numberRainColumns = [];
+  const cols = isMobile()
+    ? Math.floor(map(width, 300, 500, 15, 25))
+    : Math.floor(map(width, 400, 2500, 30, 55));
+  for (let i = 0; i < cols; i++) {
+    const ci = i % cityData.length;
+    numberRainColumns.push({
+      x: (i / cols) * width + Math.random() * (width / cols),
+      y: Math.random() * height,
+      speed: map(cityData[ci].pm25, 10, 350, 0.4, 3.5) + Math.random() * 0.5,
+      cityIdx: ci,
+      opacity: map(cityData[ci].pm25, 10, 350, 0.08, 0.3),
+      chars: [],
+      spacing: Math.floor(Math.random() * 6 + S(12, 14))
+    });
+    const col = numberRainColumns[i];
+    const count = Math.ceil(height / col.spacing) + 4;
+    for (let j = 0; j < count; j++) {
+      col.chars.push(generatePMValue(col.cityIdx));
+    }
+  }
+}
+
+function generatePMValue(ci) {
+  const base = cityData[ci].pm25;
+  const v = base + Math.floor((Math.random() - 0.5) * base * 0.4);
+  return Math.max(1, v).toString();
+}
+
+function drawNumberRain() {
+  textSize(S(9, 7));
+  textFont("monospace");
+  for (const col of numberRainColumns) {
+    col.y += col.speed;
+    if (col.y > col.spacing) {
+      col.y -= col.spacing;
+      col.chars.unshift(generatePMValue(col.cityIdx));
+      if (col.chars.length > Math.ceil(height / col.spacing) + 6) col.chars.pop();
+    }
+    for (let j = 0; j < col.chars.length; j++) {
+      const yy = col.y + j * col.spacing - col.spacing;
+      if (yy < -20 || yy > height + 20) continue;
+      const pm = cityData[col.cityIdx].pm25;
+      if (pm > 300 && Math.random() < 0.04) {
+        fill(255, 0, 0, col.opacity * 255 * 1.5);
+      } else if (pm > 200 && Math.random() < 0.015) {
+        fill(255, 0, 0, col.opacity * 255 * 0.7);
+      } else {
+        fill(255, col.opacity * 255);
+      }
+      text(col.chars[j], col.x, yy);
+    }
+  }
+}
+
+// ─── LAYER 2: BINARY STREAMS ──────────────────────────────────────
+function initBinaryStreams() {
+  binaryStreams = [];
+  const count = S(Math.floor(Math.random() * 4 + 5), Math.floor(Math.random() * 2 + 3));
+  for (let i = 0; i < count; i++) {
+    const ci = Math.floor(Math.random() * cityData.length);
+    binaryStreams.push({
+      y: (i + 1) / (count + 1) * height + (Math.random() - 0.5) * S(60, 30),
+      x: Math.random() * width,
+      speed: (Math.random() * 3 + 0.8) * (Math.random() < 0.5 ? 1 : -1),
+      cityIdx: ci,
+      opacity: Math.random() * 0.2 + 0.3,
+      bits: generateBinaryString(ci, Math.ceil(width / 6) + 20),
+      charW: Math.random() * 1.5 + S(5, 4.5)
+    });
+  }
+}
+
+function generateBinaryString(ci, len) {
+  let s = "";
+  for (let i = 0; i < len; i++) {
+    if (Math.random() < 0.15) s += " ";
+    else {
+      const pm = cityData[ci].pm25;
+      const bin = (pm + Math.floor(Math.random() * 20 - 10)).toString(2).padStart(12, "0");
+      s += bin.charAt(Math.floor(Math.random() * 12));
+    }
+  }
+  return s;
+}
+
+function drawBinaryStreams() {
+  textSize(S(10, 8));
+  textFont("monospace");
+  for (const bs of binaryStreams) {
+    bs.x += bs.speed;
+    const totalW = bs.bits.length * bs.charW;
+    if (bs.speed > 0 && bs.x > totalW) {
+      bs.x = -width;
+      bs.bits = generateBinaryString(bs.cityIdx, Math.ceil(width / 6) + 20);
+    }
+    if (bs.speed < 0 && bs.x < -totalW) {
+      bs.x = width + totalW;
+      bs.bits = generateBinaryString(bs.cityIdx, Math.ceil(width / 6) + 20);
+    }
+    const pm = cityData[bs.cityIdx].pm25;
+    for (let i = 0; i < bs.bits.length; i++) {
+      const xx = bs.x - i * bs.charW;
+      if (xx < -10 || xx > width + 10) continue;
+      if (pm > 300 && Math.random() < 0.03) {
+        fill(255, 0, 0, bs.opacity * 255 * 1.2);
+      } else {
+        fill(255, bs.opacity * 255);
+      }
+      text(bs.bits[i], xx, bs.y);
+    }
+  }
+}
+
+// ─── LAYER 3: BARCODE BANDS ───────────────────────────────────────
+function initBarcodeBands() {
+  barcodeBands = [];
+  const count = S(Math.floor(Math.random() * 2 + 3), Math.floor(Math.random() * 2 + 2));
+  for (let i = 0; i < count; i++) {
+    const bandH = S(Math.random() * 40 + 25, Math.random() * 25 + 15);
+    const yPos = Math.random() * (height - bandH * 2) + bandH;
+    const bars = [];
+    const sorted = [...cityData].sort((a, b) => b.pm25 - a.pm25);
+    let xOff = 0;
+    for (const city of sorted) {
+      const w = map(city.pm25, 5, 350, 1, S(8, 5));
+      const gap = Math.random() * 3 + 1;
+      bars.push({ x: xOff, w, city, phase: Math.random() * TWO_PI });
+      xOff += w + gap;
+    }
+    barcodeBands.push({
+      y: yPos, h: bandH, bars, totalW: xOff,
+      scrollX: Math.random() * 1000,
+      speed: Math.random() * 0.6 + 0.2,
+      opacity: Math.random() * 0.15 + 0.2
+    });
+  }
+}
+
+function drawBarcodeBands() {
+  noStroke();
+  for (const band of barcodeBands) {
+    band.scrollX += band.speed;
+    if (band.scrollX > band.totalW) band.scrollX = 0;
+    const repeats = Math.ceil(width / band.totalW) + 2;
+    for (let r = 0; r < repeats; r++) {
+      for (const bar of band.bars) {
+        const xx = bar.x + r * band.totalW - band.scrollX;
+        if (xx < -10 || xx > width + 10) continue;
+        const pulse = 1 + sin(frameCount * 0.03 + bar.phase) * 0.15;
+        const pm = bar.city.pm25;
+        if (pm > 300) {
+          fill(255, 60, 60, band.opacity * 255 * pulse * 0.7);
+        } else if (pm > 200) {
+          fill(255, 80, 80, band.opacity * 255 * pulse * 0.4);
+        } else {
+          fill(255, band.opacity * 255 * pulse);
+        }
+        rect(xx, band.y - band.h / 2, bar.w * pulse, band.h);
+      }
+    }
+  }
+}
+
+// ─── LAYER 4: DATA GRID ──────────────────────────────────────────
+function initDataGrid() {
+  gridCells = [];
+  const cols = S(8, 4);
+  const rows = S(6, 5);
+  const gridW = isMobile() ? width * 0.88 : Math.min(width * 0.6, 720);
+  const gridH = isMobile() ? height * 0.45 : Math.min(height * 0.4, 300);
+  const cellW = gridW / cols;
+  const cellH = gridH / rows;
+  const offX = (width - cols * cellW) / 2;
+  const offY = (height - rows * cellH) / 2;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const ci = (r * cols + c) % cityData.length;
+      gridCells.push({
+        x: offX + c * cellW,
+        y: offY + r * cellH,
+        w: cellW,
+        h: cellH,
+        cityIdx: ci,
+        glitchTimer: Math.random() * 200,
+        glitchDuration: 0,
+        scrambleChars: "",
+        showScramble: false,
+        lastValue: cityData[ci].pm25,
+        flashAlpha: 0
+      });
+    }
+  }
+}
+
+function drawDataGrid() {
+  textFont("monospace");
+  for (const cell of gridCells) {
+    const city = cityData[cell.cityIdx];
+    cell.glitchTimer--;
+
+    if (city.pm25 !== cell.lastValue) {
+      cell.glitchDuration = 12;
+      cell.showScramble = true;
+      cell.flashAlpha = 180;
+      cell.lastValue = city.pm25;
+    }
+
+    if (cell.glitchTimer <= 0) {
+      cell.glitchDuration = Math.floor(Math.random() * 8 + 3);
+      cell.showScramble = true;
+      cell.glitchTimer = Math.floor(Math.random() * 300 + 60);
+      cell.flashAlpha = 80;
+    }
+
+    if (cell.glitchDuration > 0) {
+      cell.glitchDuration--;
+      cell.scrambleChars = String.fromCharCode(...Array.from({length: 3}, () => Math.floor(Math.random() * 26 + 65)));
+      cell.scrambleChars += Math.floor(Math.random() * 999);
+    } else {
+      cell.showScramble = false;
+    }
+
+    cell.flashAlpha *= 0.88;
+
+    if (cell.flashAlpha > 2) {
+      noStroke();
+      fill(255, cell.flashAlpha * 0.15);
+      rect(cell.x, cell.y, cell.w, cell.h);
+    }
+
+    stroke(255, 25);
+    strokeWeight(0.5);
+    noFill();
+    rect(cell.x, cell.y, cell.w, cell.h);
+
+    noStroke();
+    const pm = city.pm25;
+    let txtColor;
+    if (pm > 300) txtColor = color(255, 70, 70, 200);
+    else if (pm > 200) txtColor = color(255, 100, 100, 140);
+    else if (pm > 100) txtColor = color(255, 220);
+    else txtColor = color(255, 160);
+
+    fill(txtColor);
+    textAlign(CENTER, CENTER);
+
+    if (cell.showScramble && Math.random() < 0.7) {
+      textSize(S(14, 12));
+      text(cell.scrambleChars, cell.x + cell.w / 2, cell.y + cell.h / 2);
+    } else {
+      textSize(S(15, 14));
+      text(pm, cell.x + cell.w / 2, cell.y + cell.h / 2 - S(6, 5));
+      textSize(S(9, 8));
+      fill(255, 90);
+      text(city.code, cell.x + cell.w / 2, cell.y + cell.h / 2 + S(10, 9));
+    }
+    textAlign(LEFT, BASELINE);
+  }
+}
+
+// ─── LAYER 5: COORDINATE TICKERS ─────────────────────────────────
+function initTickers() {
+  tickerTop = { x: 0, speed: S(1.8, 1.2), text: buildTickerText(), y: 12 };
+  tickerBottom = { x: width, speed: S(-1.2, -0.8), text: buildTickerText(), y: height - 5 };
+}
+
+function buildTickerText() {
+  let s = "";
+  const shuffled = [...cityData].sort(() => Math.random() - 0.5);
+  for (const c of shuffled) {
+    const ts = new Date(c.timestamp).toISOString().replace("T", " ").substring(0, 19) + "Z";
+    if (isMobile()) {
+      s += `  ${c.code} ${c.pm25} ${c.station}  |`;
+    } else {
+      s += `  ${c.code} ${c.lat.toFixed(4)}N ${Math.abs(c.lon).toFixed(4)}${c.lon >= 0 ? "E" : "W"}  PM2.5:${c.pm25}  ${c.station}  ${ts}  |`;
+    }
+  }
+  return s + s;
+}
+
+function drawTickers() {
+  textFont("monospace");
+  textSize(S(8, 7));
+  fill(255, 100);
+  textAlign(LEFT, TOP);
+
+  tickerTop.x -= tickerTop.speed;
+  const tw = textWidth(tickerTop.text);
+  if (tickerTop.x < -tw / 2) {
+    tickerTop.x = 0;
+    tickerTop.text = buildTickerText();
+  }
+  text(tickerTop.text, tickerTop.x, tickerTop.y);
+
+  tickerBottom.x += tickerBottom.speed;
+  if (tickerBottom.x > tw / 2) {
+    tickerBottom.x = 0;
+    tickerBottom.text = buildTickerText();
+  }
+  text(tickerBottom.text, tickerBottom.x - tw / 2, tickerBottom.y);
+
+  textAlign(LEFT, BASELINE);
+}
+
+// ─── P5 LIFECYCLE ─────────────────────────────────────────────────
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  textFont("monospace");
+  if (!isMobile()) noCursor();
+  lastMouseMove = millis();
+
+  // On mobile, always show buttons
+  if (isMobile()) btnBar.classList.add("visible");
+
+  initCityData();
+  fetchOpenAQ().then(() => { initAllLayers(); });
+  initAllLayers();
+
+  setInterval(() => {
+    refreshData();
+    if (tickerTop) tickerTop.text = buildTickerText();
+    if (tickerBottom) tickerBottom.text = buildTickerText();
+  }, 5000);
+
+  setInterval(() => { fetchOpenAQ(); }, 120000);
+}
+
+function initAllLayers() {
+  initNumberRain();
+  initBinaryStreams();
+  initBarcodeBands();
+  initDataGrid();
+  initTickers();
+}
+
+function draw() {
+  if (paused) return;
+  background(0);
+  drawAllLayers();
+  drawScanlines();
+
+  // cursor auto-hide (desktop only)
+  if (!isMobile() && millis() - lastMouseMove > 2000) {
+    if (cursorVisible) { noCursor(); cursorVisible = false; }
+  }
+}
+
+function drawAllLayers() {
+  drawNumberRain();
+  drawBinaryStreams();
+  drawBarcodeBands();
+  drawDataGrid();
+  drawTickers();
+}
+
+function drawScanlines() {
+  stroke(0, 18);
+  strokeWeight(1);
+  for (let y = 0; y < height; y += S(3, 4)) {
+    line(0, y, width, y);
+  }
+  noStroke();
+}
+
+// ─── INTERACTION ──────────────────────────────────────────────────
+function mousePressed() {
+  if (ignoreNextClick) return;
+  paused = !paused;
+  flashBtnBar();
+}
+
+function touchStarted() {
+  if (ignoreNextClick) return false;
+  paused = !paused;
+  flashBtnBar();
+  return false;
+}
+
+function mouseMoved() {
+  lastMouseMove = millis();
+  if (!cursorVisible) { cursor(ARROW); cursorVisible = true; }
+  flashBtnBar();
+}
+
+function keyPressed() {
+  if (key === "f" || key === "F") {
+    fullscreen(!fullscreen());
+  }
+  if (key === "r" || key === "R") {
+    fetchOpenAQ();
+    refreshData();
+  }
+  if (key === "s" || key === "S") { doScreenshot(); }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  initAllLayers();
+  if (isMobile()) btnBar.classList.add("visible");
+}
+</script>
+</body>
+</html>
